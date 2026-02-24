@@ -92,6 +92,15 @@ export interface Channel {
 // Callback type that channels use to deliver inbound messages
 export type OnInboundMessage = (chatJid: string, message: NewMessage) => void;
 
+export interface EmailChannelConfig {
+  enabled: boolean;
+  triggerMode: 'label' | 'address' | 'subject';
+  triggerValue: string;
+  contextMode: 'thread' | 'sender' | 'single';
+  pollIntervalMs: number;
+  replyPrefix?: string;
+}
+
 // Callback for chat metadata discovery.
 // name is optional — channels that deliver names inline (Telegram) pass it here;
 // channels that sync names separately (WhatsApp syncGroupMetadata) omit it.

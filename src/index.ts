@@ -3,6 +3,7 @@ import path from 'path';
 
 import {
   ASSISTANT_NAME,
+  EMAIL_CHANNEL,
   IDLE_TIMEOUT,
   MAIN_GROUP_FOLDER,
   POLL_INTERVAL,
@@ -25,12 +26,16 @@ import {
   getNewMessages,
   getRouterState,
   initDatabase,
+  isEmailProcessed,
+  markEmailProcessed,
+  markEmailResponded,
   setRegisteredGroup,
   setRouterState,
   setSession,
   storeChatMetadata,
   storeMessage,
 } from './db.js';
+import { checkForNewEmails, EmailMessage, getContextKey, markEmailAsRead, sendEmailReply } from './email-channel.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { startIpcWatcher } from './ipc.js';
@@ -306,6 +311,123 @@ async function runAgent(
   }
 }
 
+async function runEmailAgent(
+  contextKey: string,
+  prompt: string,
+  email: EmailMessage,
+): Promise<string | null> {
+  const groupFolder = EMAIL_CHANNEL.contextMode === 'single'
+    ? MAIN_GROUP_FOLDER
+    : `email/${contextKey}`;
+
+  const groupDir = resolveGroupFolderPath(groupFolder);
+  fs.mkdirSync(path.join(groupDir, 'logs'), { recursive: true });
+
+  const emailGroup: RegisteredGroup = {
+    name: contextKey,
+    folder: groupFolder,
+    trigger: '',
+    added_at: new Date().toISOString(),
+    requiresTrigger: false,
+  };
+
+  const tasks = getAllTasks();
+  writeTasksSnapshot(groupFolder, false, tasks.map((t) => ({
+    id: t.id,
+    groupFolder: t.group_folder,
+    prompt: t.prompt,
+    schedule_type: t.schedule_type,
+    schedule_value: t.schedule_value,
+    status: t.status,
+    next_run: t.next_run,
+  })));
+  writeGroupsSnapshot(groupFolder, false, [], new Set());
+
+  const wrappedOnOutput = async (output: ContainerOutput) => {
+    if (output.newSessionId) {
+      sessions[groupFolder] = output.newSessionId;
+      setSession(groupFolder, output.newSessionId);
+    }
+  };
+
+  try {
+    const output = await runContainerAgent(
+      emailGroup,
+      {
+        prompt,
+        sessionId: sessions[groupFolder],
+        groupFolder,
+        chatJid: `email:${email.from}`,
+        isMain: false,
+        assistantName: ASSISTANT_NAME,
+      },
+      (proc, containerName) => queue.registerProcess(`email:${email.from}`, proc, containerName, groupFolder),
+      wrappedOnOutput,
+    );
+
+    if (output.newSessionId) {
+      sessions[groupFolder] = output.newSessionId;
+      setSession(groupFolder, output.newSessionId);
+    }
+
+    return output.status === 'success' ? output.result : null;
+  } catch (err) {
+    logger.error({ err, contextKey }, 'Email agent error');
+    return null;
+  }
+}
+
+async function startEmailLoop(): Promise<void> {
+  if (!EMAIL_CHANNEL.enabled) {
+    logger.info('Email channel disabled');
+    return;
+  }
+
+  logger.info(
+    { trigger: `${EMAIL_CHANNEL.triggerMode}:${EMAIL_CHANNEL.triggerValue}` },
+    'Email channel running',
+  );
+
+  while (true) {
+    try {
+      const emails = await checkForNewEmails();
+
+      for (const email of emails) {
+        if (isEmailProcessed(email.id)) continue;
+
+        logger.info({ from: email.from, subject: email.subject }, 'Processing email');
+        markEmailProcessed(email.id, email.threadId, email.from, email.subject);
+        await markEmailAsRead(email.id);
+
+        const contextKey = getContextKey(email);
+        const prompt = `<email>
+<from>${email.from}</from>
+<subject>${email.subject}</subject>
+<date>${email.date}</date>
+<body>${email.body}</body>
+</email>
+
+Respond to this email. Your response will be sent as a reply to the sender.`;
+
+        const response = await runEmailAgent(contextKey, prompt, email);
+
+        if (response) {
+          const text = response.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
+          if (text) {
+            await sendEmailReply(email.threadId, email.from, email.subject, text);
+            markEmailResponded(email.id);
+            logger.info({ to: email.from }, 'Email reply sent');
+          }
+        }
+      }
+    } catch (err) {
+      logger.error({ err }, 'Error in email loop');
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, EMAIL_CHANNEL.pollIntervalMs));
+  }
+}
+
 async function startMessageLoop(): Promise<void> {
   if (messageLoopRunning) {
     logger.debug('Message loop already running, skipping duplicate start');
@@ -481,6 +603,10 @@ async function main(): Promise<void> {
   recoverPendingMessages();
   startMessageLoop().catch((err) => {
     logger.fatal({ err }, 'Message loop crashed unexpectedly');
+    process.exit(1);
+  });
+  startEmailLoop().catch((err) => {
+    logger.fatal({ err }, 'Email loop crashed unexpectedly');
     process.exit(1);
   });
 }

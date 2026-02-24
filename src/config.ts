@@ -2,6 +2,7 @@ import os from 'os';
 import path from 'path';
 
 import { readEnvFile } from './env.js';
+import { EmailChannelConfig } from './types.js';
 
 // Read config values from .env (falls back to process.env).
 // Secrets are NOT read here — they stay on disk and are loaded only
@@ -58,12 +59,17 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export const TRIGGER_PATTERN = new RegExp(
-  `^@${escapeRegex(ASSISTANT_NAME)}\\b`,
-  'i',
-);
+export const TRIGGER_PATTERN = /^@andy\b/;
 
 // Timezone for scheduled tasks (cron expressions, etc.)
 // Uses system timezone by default
 export const TIMEZONE =
   process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+export const EMAIL_CHANNEL: EmailChannelConfig = {
+  enabled: true,
+  triggerMode: 'subject',
+  triggerValue: '@Andy',
+  contextMode: 'thread',
+  pollIntervalMs: 60000,
+};

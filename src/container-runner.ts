@@ -4,6 +4,7 @@
  */
 import { ChildProcess, exec, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -94,6 +95,17 @@ function buildVolumeMounts(
         readonly: true,
       });
     }
+  }
+
+  // Gmail credentials directory (MCP may need to refresh tokens)
+  const homeDir = process.env.HOME || os.homedir();
+  const gmailDir = path.join(homeDir, '.gmail-mcp');
+  if (fs.existsSync(gmailDir)) {
+    mounts.push({
+      hostPath: gmailDir,
+      containerPath: '/home/node/.gmail-mcp',
+      readonly: false,
+    });
   }
 
   // Per-group Claude sessions directory (isolated from other groups)
