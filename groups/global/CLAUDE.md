@@ -65,8 +65,13 @@ You have access to Gmail via MCP tools (when available):
 - `mcp__gmail__send_email` - Send an email
 - `mcp__gmail__draft_email` - Create a draft
 - `mcp__gmail__list_labels` - List available labels
-- `mcp__gmail__delete_email` - Delete (trash) a single email by ID
-- `mcp__gmail__delete_emails` - Delete multiple emails by ID
+- **Trash (Papierkorb)**: Use the REST API directly — `delete_email` MCP tool permanently deletes and requires a scope we don't have. To move to trash:
+  ```bash
+  TOKEN=$(node -e "const c=require('/home/node/.gmail-mcp/credentials.json'); process.stdout.write(c.access_token)")
+  curl -s -X POST "https://gmail.googleapis.com/gmail/v1/users/me/messages/MESSAGE_ID/trash" \
+    -H "Authorization: Bearer $TOKEN"
+  ```
+  Replace `MESSAGE_ID` with the actual ID from `search_emails`.
 
 Example: "Check my unread emails from today" or "Send an email to john@example.com about the meeting"
 
