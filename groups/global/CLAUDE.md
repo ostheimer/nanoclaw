@@ -65,6 +65,8 @@ You have access to Gmail via MCP tools (when available):
 - `mcp__gmail__send_email` - Send an email
 - `mcp__gmail__draft_email` - Create a draft
 - `mcp__gmail__list_labels` - List available labels
+- `mcp__gmail__delete_email` - Delete (trash) a single email by ID
+- `mcp__gmail__delete_emails` - Delete multiple emails by ID
 
 Example: "Check my unread emails from today" or "Send an email to john@example.com about the meeting"
 
